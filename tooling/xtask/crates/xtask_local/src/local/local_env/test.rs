@@ -2,9 +2,14 @@ use super::*;
 use crate::local::Mode;
 use crate::local::instance::{Instance, Port};
 
+/// The merged env a `--no-doppler` stack sees: boot stubs below, the
+/// authoritative local env on top (mirrors `env_layer::resolve`).
 fn local_env() -> BTreeMap<String, String> {
     let instance = Instance::derive(None, None).expect("default instance derives");
-    LocalEnv::for_instance(Mode::Local, &instance, true).to_env()
+    let local = LocalEnv::for_instance(Mode::Local, &instance, true);
+    let mut env = local.boot_stub_env();
+    env.extend(local.to_env());
+    env
 }
 
 /// Every key a local service relies on must be present — this is the test that
@@ -86,6 +91,22 @@ fn emits_required_keys() {
         assert!(
             env.contains_key(key),
             "missing required local env key: {key}"
+        );
+    }
+}
+
+/// Boot stubs are a fallback layer BELOW Doppler; `to_env` is authoritative
+/// ABOVE Doppler. A key present in both would make its precedence ambiguous —
+/// whichever map wrote last would silently win.
+#[test]
+fn boot_stubs_do_not_overlap_authoritative_env() {
+    let instance = Instance::derive(None, None).expect("default instance derives");
+    let local = LocalEnv::for_instance(Mode::Local, &instance, true);
+    let authoritative = local.to_env();
+    for key in local.boot_stub_env().keys() {
+        assert!(
+            !authoritative.contains_key(key),
+            "{key} is in both boot_stub_env and to_env"
         );
     }
 }

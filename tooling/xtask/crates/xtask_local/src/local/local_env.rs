@@ -1,16 +1,18 @@
 //! The typed, code-owned local-stack environment — the replacement for the
 //! checked-in `infra/local/defaults.env`.
 //!
-//! Local mode is fully code-defined: it does NOT pull Doppler. Every value here
-//! is deterministic and local-only — docker-network hostnames, LocalStack dummy
-//! creds, fixed queue/bucket names, the fixed FusionAuth kickstart identity, and
-//! per-instance internal secrets. Anything that needs a *real* secret or a real
-//! integration (Gmail, Stripe, …) is intentionally absent: that's a `run_dev`
-//! concern (Doppler), not a local one.
+//! Every value here is deterministic and local-only — docker-network hostnames,
+//! LocalStack dummy creds, fixed queue/bucket names, the fixed FusionAuth
+//! kickstart identity, and per-instance internal secrets. Anything that needs a
+//! *real* secret or a real integration (Gmail, Stripe, …) comes from Doppler or
+//! `--env-file`; [`BootStubEnv`] only supplies placeholder fallbacks so a
+//! `--no-doppler` stack's config loaders don't crash at startup.
 //!
-//! [`LocalEnv::for_instance`] builds the struct; [`LocalEnv::to_env`] is the one
-//! boundary that flattens it to the env map. Grouping makes additions land in a
-//! named, testable place instead of a free-form dotenv file that quietly rots.
+//! [`LocalEnv::for_instance`] builds the struct. Two boundaries flatten it to
+//! env maps: [`LocalEnv::to_env`] (authoritative, layered above Doppler) and
+//! [`LocalEnv::boot_stub_env`] (fallback, layered below Doppler). Grouping makes
+//! additions land in a named, testable place instead of a free-form dotenv file
+//! that quietly rots.
 
 use std::collections::BTreeMap;
 
@@ -77,6 +79,15 @@ impl LocalEnv {
         self.mail.write(&mut env);
         self.service_auth.write(&mut env);
         self.fusionauth.write(&mut env);
+        env
+    }
+
+    /// The boot-stub fallback layer (see [`BootStubEnv`]), kept separate from
+    /// [`Self::to_env`] on purpose: the resolver layers these BELOW Doppler so
+    /// real integration values win over the stubs, while `to_env`'s local
+    /// plumbing is layered ABOVE Doppler and wins.
+    pub fn boot_stub_env(&self) -> BTreeMap<String, String> {
+        let mut env = BTreeMap::new();
         self.boot_stubs.write(&mut env);
         env
     }
@@ -345,6 +356,12 @@ impl FusionAuthEnv {
 /// local stub: good enough to boot, never a real secret, and only meaningful
 /// for the specific integration it names (which won't work locally anyway —
 /// that's what `--env-file` / `run_dev` are for).
+///
+/// Unlike the rest of [`LocalEnv`], these are a FALLBACK layer: the resolver
+/// applies them below Doppler (see `env_layer::resolve`), so a developer with
+/// Doppler access keeps every real integration value. A key here must never
+/// also appear in [`LocalEnv::to_env`] — that would make precedence ambiguous
+/// (a test enforces this).
 struct BootStubEnv;
 
 impl BootStubEnv {
@@ -358,7 +375,10 @@ impl BootStubEnv {
             "postgres://user:password@postgres:5432/macrodb".into(),
         );
         // services validating the shared internal auth header.
-        env.insert("INTERNAL_API_KEY".into(), identity::INTERNAL_AUTH_KEY.into());
+        env.insert(
+            "INTERNAL_API_KEY".into(),
+            identity::INTERNAL_AUTH_KEY.into(),
+        );
         // document_cognition_service's soup client (internal HMAC).
         env.insert(
             "AUTHENTICATION_SERVICE_SECRET_KEY".into(),
@@ -465,7 +485,10 @@ impl BootStubEnv {
         env.insert("ANTHROPIC_API_KEY".into(), "local-anthropic-key".into());
         // document_cognition_service's MCP provider registry requires the
         // pre-registered OAuth creds (Slack + GitHub) at boot.
-        env.insert("SLACK_MCP_CLIENT_ID".into(), "local-slack-mcp-client".into());
+        env.insert(
+            "SLACK_MCP_CLIENT_ID".into(),
+            "local-slack-mcp-client".into(),
+        );
         env.insert(
             "SLACK_MCP_CLIENT_SECRET".into(),
             "local-slack-mcp-secret".into(),

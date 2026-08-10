@@ -1,28 +1,39 @@
 use std::sync::Mutex;
 
-use super::{is_local_stripe_stub, local_stripe_customer_id};
+use macro_env_var::optional_read_env_var;
+
+use super::{LOCAL_STRIPE_SECRET_STUB, is_local_stripe_stub, local_stripe_customer_id};
 
 /// Tests mutate the process env, which is process-global; serialize them so
 /// they can't interleave.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+/// Restores the saved `STRIPE_SECRET_KEY` on drop, so a panicking test body
+/// can't leak its value into later tests.
+struct RestoreStripeKey(Option<String>);
+
+impl Drop for RestoreStripeKey {
+    fn drop(&mut self) {
+        match self.0.take() {
+            Some(saved) => unsafe { std::env::set_var("STRIPE_SECRET_KEY", saved) },
+            None => unsafe { std::env::remove_var("STRIPE_SECRET_KEY") },
+        }
+    }
+}
+
 fn with_stripe_key(key: Option<&str>, f: impl FnOnce()) {
     let _guard = ENV_LOCK.lock().unwrap();
-    let saved = std::env::var("STRIPE_SECRET_KEY").ok();
+    let _restore = RestoreStripeKey(optional_read_env_var("STRIPE_SECRET_KEY").ok().flatten());
     match key {
         Some(key) => unsafe { std::env::set_var("STRIPE_SECRET_KEY", key) },
         None => unsafe { std::env::remove_var("STRIPE_SECRET_KEY") },
     };
     f();
-    match saved {
-        Some(saved) => unsafe { std::env::set_var("STRIPE_SECRET_KEY", saved) },
-        None => unsafe { std::env::remove_var("STRIPE_SECRET_KEY") },
-    };
 }
 
 #[test]
 fn local_stub_key_is_detected() {
-    with_stripe_key(Some("local-stripe-secret"), || {
+    with_stripe_key(Some(LOCAL_STRIPE_SECRET_STUB), || {
         assert!(is_local_stripe_stub());
     });
 }
