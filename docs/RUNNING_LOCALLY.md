@@ -194,7 +194,8 @@ Run the stack on a port window that is free on your machine. You do not need to
 kill the other process:
 
 ```bash
-just doctor-local                         # see which ports are busy
+just doctor-local                         # see which default ports are busy
+just doctor-local --instance test --port-base 31000   # check the new window is free
 just run_local --no-doppler --instance test --port-base 31000
 ```
 
@@ -210,7 +211,7 @@ with the same `--instance` and `--port-base` values:
 just run_local --no-doppler --instance test --port-base 31000
 just seed-scenario --instance test --port-base 31000 apply --file seed/scenarios/team-perms.json
 just seed-scenario --instance test --port-base 31000 status --file seed/scenarios/team-perms.json
-just status_local --instance test
+just status_local --instance test --port-base 31000
 ```
 
 If you omit `--port-base`, a named instance gets a deterministic port window
@@ -221,7 +222,7 @@ started with an explicit `--port-base` must be seeded with the same explicit
 
 The seeded persona login links embed the frontend port. If you switch ports, run
 `just seed-scenario apply` again to get links that match the new window.
-`just status_local` prints the live endpoints for whatever is running.
+`just status_local`, with the same two flags, prints the live endpoints.
 
 ## What the Stack Rebuilds
 
