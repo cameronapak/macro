@@ -69,7 +69,36 @@ This command:
 
 When startup finishes, the command prints the frontend URL and the important service URLs.
 
-Open the frontend URL in your browser. Create a user account. The stack seeds a fixed test identity, so you can log in and use the app.
+Open the frontend URL in your browser. The stack does not pre-create any accounts —
+passwordless login creates a user on demand, so just sign up with any email you like
+and enter the one-time code FusionAuth emails you. Locally that email lands in
+**Mailpit** at http://localhost:8025 instead of a real inbox.
+
+### Seeding sample data (recommended)
+
+A bare stack has no documents, channels, or other content to click through. The
+seed CLI populates a realistic world — users, teams, channels, projects, documents,
+tasks, chats, calls, emails, and messages — wired up with realistic permissions:
+
+```bash
+# From the repository root, after the stack is up:
+just seed-scenario apply --file seed/scenarios/team-perms.json
+```
+
+`apply` creates a FusionAuth account for each persona and prints per-persona login
+links (e.g. `http://alice.localhost:3000/app/login?email=alice@seed.macro.local`).
+Open each link in a plain browser tab — the per-persona hostnames keep separate
+cookie jars, so you can drive several personas side by side against the same stack.
+
+- `just seed-scenario status --file seed/scenarios/team-perms.json` — show what is
+  seeded and re-print the login links.
+- `just seed-scenario reset --file seed/scenarios/team-perms.json` — remove the
+  scenario's rows (and its user accounts by email).
+- `just seed-scenario matrix --file seed/scenarios/team-perms.json` — verify the
+  expected access level for every (user, entity) pair against the live DB.
+
+`apply` only touches rows carrying the scenario's `5eed` id marker (plus the persona
+accounts it created), so it is safe to run against a stack you have been testing in.
 
 ## Integration Secrets
 
@@ -79,7 +108,7 @@ A `--no-doppler` stack boots with deterministic stubs for every value the servic
 | --- | --- | --- |
 | Google login / Gmail | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET_KEY` | Login with Google and Gmail linking are unavailable |
 | GitHub login | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_IDP_ID` | Login with GitHub is unavailable |
-| Stripe billing | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` | Checkout and subscription endpoints fail |
+| Stripe billing | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` | Checkout and subscription endpoints fail. Signup still works: the create-user webhook detects the stub key and skips the real Stripe call, storing a placeholder customer id. |
 | CloudFront signed URLs | `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_DISTRIBUTION_URL`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PUBLIC_KEY_ID`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PRIVATE_KEY` | Document download URLs are unsigned (fine against local S3) |
 
 The other stubbed keys (`REDIS_HOST`, `MACRO_DB_URL`, `INTERNAL_API_KEY`, `AUTHENTICATION_SERVICE_SECRET_KEY`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`) are internal plumbing with correct local values — you never need to override them.
