@@ -46,9 +46,13 @@ Run this command from the repository root if you do not have Doppler access:
 just run_local --no-doppler
 ```
 
-The local stack does not need Doppler. It uses the code-defined local configuration. Most contributors are not on the team, so this is the common path.
+The local stack does not need Doppler. It uses the code-defined local configuration with dummy AWS credentials and fixed test secrets. Most contributors are not on the team, so this is the common path.
 
-Run this command if you have Doppler access. It pulls the `lcl_personal` config:
+The stack boots with stubbed values for every config the services require — including the third-party integrations (Google, GitHub, Stripe, CloudFront). Those flows won't actually work against real services with the stubs, but the stack starts and everything else (auth, documents, email, search) is fully functional.
+
+To use a real integration locally, supply its keys via `--env-file` — see [Integration Secrets](#integration-secrets) below.
+
+Run this command if you have Doppler access. It pulls the `lcl_personal` config and overlays the code-defined local defaults, so every integration value is real:
 
 ```bash
 just run_local
@@ -66,6 +70,27 @@ This command:
 When startup finishes, the command prints the frontend URL and the important service URLs.
 
 Open the frontend URL in your browser. Create a user account. The stack seeds a fixed test identity, so you can log in and use the app.
+
+## Integration Secrets
+
+A `--no-doppler` stack boots with deterministic stubs for every value the services' config loaders require. The stubs are enough to start the services, but the third-party integrations they back won't work until you supply real values:
+
+| Integration | Keys | Stub behavior |
+| --- | --- | --- |
+| Google login / Gmail | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET_KEY` | Login with Google and Gmail linking are unavailable |
+| GitHub login | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_IDP_ID` | Login with GitHub is unavailable |
+| Stripe billing | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` | Checkout and subscription endpoints fail |
+| CloudFront signed URLs | `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_DISTRIBUTION_URL`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PUBLIC_KEY_ID`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PRIVATE_KEY` | Document download URLs are unsigned (fine against local S3) |
+
+The other stubbed keys (`REDIS_HOST`, `MACRO_DB_URL`, `INTERNAL_API_KEY`, `AUTHENTICATION_SERVICE_SECRET_KEY`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`) are internal plumbing with correct local values — you never need to override them.
+
+To turn on an integration, create a `local.env` with the real values and pass it to `run_local`:
+
+```bash
+just run_local --no-doppler --env-file ./local.env
+```
+
+Keys in the file override the code-defined defaults, so you only need to list the integrations you care about. With Doppler access, `just run_local` (without `--no-doppler`) supplies everything automatically.
 
 ## Check the Setup
 
