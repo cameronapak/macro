@@ -106,7 +106,7 @@ A `--no-doppler` stack boots with deterministic stubs for every value the servic
 
 | Integration | Keys | Stub behavior |
 | --- | --- | --- |
-| Google login / Gmail | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET_KEY` | Login with Google and Gmail linking are unavailable |
+| Google login / Gmail | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET_KEY` | Google SSO and Gmail inbox linking are unavailable. Local signup still works — the email service reports "no Gmail grant" and skips inbox syncing. |
 | GitHub login | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_IDP_ID` | Login with GitHub is unavailable |
 | Stripe billing | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` | Checkout and subscription endpoints fail. Signup still works: the create-user webhook detects the stub key and skips the real Stripe call, storing a placeholder customer id. |
 | CloudFront signed URLs | `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_DISTRIBUTION_URL`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PUBLIC_KEY_ID`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PRIVATE_KEY` | Document download URLs are unsigned (fine against local S3) |
@@ -162,6 +162,55 @@ The generated files for an instance live here:
 ```text
 infra/local/generated/<instance>
 ```
+
+## Port Conflicts (macOS)
+
+The default instance binds a fixed set of host ports, and macOS reserves some of
+them for its own services. If the app loads but API calls return unexpected HTML
+(or fail), a port is almost certainly hijacked by an unrelated process. The two
+most common on a fresh Mac:
+
+- **Port 8080** — macOS's built-in WebDriver service (`com.apple.WebDriver.HTTPService`)
+  listens on it when "Allow Remote Automation" is on. The auth service can't bind it.
+- **Port 8090** — often taken by another project's dev server (e.g. an Expo
+  `--port 8090`). The proxy can't bind it.
+
+Symptoms: the frontend loads, but login/API calls hit the squatter and you see
+HTML or errors in the browser console instead of JSON. `just doctor-local` reports
+the busy ports before you start.
+
+The fix is to run the stack on a port window that is free on your machine — no
+need to kill the other process:
+
+```bash
+just doctor-local                         # see which ports are busy
+just run_local --no-doppler --instance test --port-base 31000
+```
+
+A named instance binds every service at `port-base + offset`, so a free base like
+`31000` moves the whole stack to one contiguous window. Use whatever base is free
+on your machine (see `just doctor-local`), and keep the same `--instance` name and
+`--port-base` on later runs so the ports stay deterministic.
+
+Everything that talks to the stack takes the same two flags — run it, seed it, and
+check it with the identical `--instance` / `--port-base`:
+
+```bash
+just run_local --no-doppler --instance test --port-base 31000
+just seed-scenario --instance test --port-base 31000 apply --file seed/scenarios/team-perms.json
+just seed-scenario --instance test --port-base 31000 status --file seed/scenarios/team-perms.json
+just status_local --instance test
+```
+
+If you omit `--port-base`, a named instance still gets a deterministic (but
+different) port window derived from its name — so a stack started with an explicit
+`--port-base` must be seeded with the same explicit `--port-base`, or the seed CLI
+will look at the wrong database. The default instance (no `--instance`) always uses
+the fixed ports and needs no extra flags.
+
+Note: the seeded persona login links (below) embed the frontend port, so re-run
+`just seed-scenario apply` after switching ports to get links that match the new
+window. `just status_local` prints the live endpoints for whatever is running.
 
 ## What the Stack Rebuilds
 
