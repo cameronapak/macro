@@ -1,170 +1,182 @@
 # Running Locally
 
-Use `just run_local` to run the full app on your machine.
+This guide explains how to run Macro on your machine. The local stack runs without Doppler. It runs Postgres, Redis, LocalStack, OpenSearch, Kafka, and FusionAuth in Docker, with dummy AWS credentials and fixed test secrets.
+
+## What You Need
+
+Install these tools before you start:
+
+1. [Nix](https://nix.dev/install-nix) package manager
+2. [Docker](https://docs.docker.com/get-docker/) with the Compose v2 plugin (Docker Desktop, OrbStack, or Colima work)
+3. [just](https://just.systems/man/en/installation.html) command runner
+4. [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html), the Rust package manager
+
+Clone the repository:
+
+```bash
+git clone https://github.com/macro-inc/macro.git
+cd macro
+```
+
+## Enter the Nix Shell
+
+The Nix shell provides the Rust toolchain, Bun, sqlx, zig, and cargo-zigbuild.
+
+```bash
+nix develop
+```
+
+If `nix develop` fails, enable the experimental features:
+
+```bash
+nix develop --extra-experimental-features nix-command --extra-experimental-features flakes
+```
+
+Nix requires these experimental features to work. The command above enables them for one run. To enable them permanently, set this in `~/.config/nix/nix.conf`:
+
+```
+experimental-features = nix-command flakes
+```
+
+## Start the Stack
+
+Run this command from the repository root if you do not have Doppler access:
+
+```bash
+just run_local --no-doppler
+```
+
+The local stack does not need Doppler. It uses the code-defined local configuration. Most contributors are not on the team, so this is the common path.
+
+Run this command if you have Doppler access. It pulls the `lcl_personal` config:
 
 ```bash
 just run_local
 ```
 
-This starts local infra, backend services, the local proxy, and the frontend.
-When startup finishes, the command prints the frontend URL and the important
-service URLs.
+If you prefer to test against real cloud infrastructure, you need [Doppler](https://www.doppler.com) for secrets management.
 
-## Requirements
+This command:
 
-The easiest path is to use the repo's Nix shell. It should provide the Rust
-toolchain, `cargo-zigbuild`, Zig, Bun, sqlx, and the other project tools.
+- Builds the Rust backend services
+- Starts the local infrastructure (Postgres, Redis, LocalStack, OpenSearch, Kafka, FusionAuth)
+- Starts the backend services
+- Starts the local proxy and the frontend
 
-Outside the Nix shell, you need at least:
+When startup finishes, the command prints the frontend URL and the important service URLs.
 
-- Docker with Compose v2
-- Doppler CLI
-- Rust toolchain
-- `cargo-zigbuild` and Zig
-- Bun
-- sqlx CLI
+Open the frontend URL in your browser. Create a user account. The stack seeds a fixed test identity, so you can log in and use the app.
 
-You should also be logged in to Doppler and have access to the `local` project:
+## Check the Setup
 
-```bash
-doppler login
-```
-
-`run_local` pulls the `lcl_personal` Doppler config by default. If you want to
-run without Doppler, use:
-
-```bash
-just run_local --no-doppler --env-file ./local.env
-```
-
-## Running One Stack
-
-Start the default stack:
-
-```bash
-just run_local
-```
-
-Useful preflight:
+Run the preflight check before the first start:
 
 ```bash
 just doctor-local
 ```
 
+The check tests the Docker daemon, the toolchain, and the required ports. It reports any problem and suggests a fix. If a start fails, run the check again.
+
+## Control the Running Stack
+
 While `run_local` is attached:
 
-- Press `r` to rebuild and reload changed Rust services.
-- Press `q` to tear the stack down and exit.
+- Press `r` to rebuild the changed Rust services and reload them.
+- Press `q` to stop the stack and exit.
 
-Prefer `q` over just closing the terminal. It stops/removes the instance's
-containers immediately, so the next startup does not have to clean up a stale
-stack first.
+Use `q`, not the terminal close button. `q` stops and removes the containers at once. The next start does not have to clean up a stale stack.
 
-## Running Multiple Instances
+## Run More than One Stack
 
-Use named instances when you want multiple local stacks at once, especially
-across worktrees:
+Use named instances for several local stacks at once. This helps across worktrees:
 
 ```bash
 just run_local --instance agent-a
 just run_local --instance agent-b
 ```
 
-Each named instance gets its own Compose project, volumes, networks, generated
-env files, proxy, frontend port, and backend ports. Ports are deterministic for
-the instance name, so the same name should get the same port window on every
-run.
+Each instance has its own Compose project, volumes, networks, env files, proxy port, frontend port, and backend ports. The ports are deterministic for the instance name. The same name gets the same port window on every run.
 
-If a generated port window conflicts with something else on your machine:
+If the port window conflicts with another program on your machine, change the base port:
 
 ```bash
 just run_local --instance agent-a --port-base 23000
 ```
 
-Generated files live at:
+The generated files for an instance live here:
 
 ```text
 infra/local/generated/<instance>
 ```
 
-## What Gets Rebuilt
+## What the Stack Rebuilds
 
-Rust backend services are built on the host with `cargo zigbuild` and mounted
-into a shared runtime image. Docker is not compiling those Rust services during
-normal `run_local`.
+The Rust services are built on the host with `cargo zigbuild`. The binaries are mounted into a shared runtime image. Docker does not compile these services during a normal `run_local`.
 
-Pressing `r` rebuilds the Rust binaries and restarts only the services whose
-binaries changed.
+Press `r` to rebuild the binaries. Only the services whose binaries changed restart.
 
-The current rough edge is auxiliary Docker-built services:
+Three services have Docker-built images. They are not rebuilt by default:
 
 - `sync_service`
 - `lexical_service`
 - `websocket_service`
 
-Those are not rebuilt by default. If you change sync-service, lexical-service,
-or anything that affects their Docker images, the running stack can keep using a
-stale image.
-
-To force those services to rebuild:
+If you change these services, the running stack can use a stale image. Force a rebuild with this flag:
 
 ```bash
 just run_local --build-aux-services
 ```
 
-When the stack was started with `--build-aux-services`, pressing `r` also
-rebuilds those auxiliary images and recreates their containers. That is slower,
-so leave it off unless you are actively working on those services or need to
-pick up a change there.
+When you start the stack with `--build-aux-services`, press `r` to rebuild those images and recreate their containers. This is slower, so leave the flag off unless you work on those services.
 
-If you already started without `--build-aux-services` and suspect a stale
-sync/lexical image, press `q` and restart with the flag.
+If you started without the flag and suspect a stale image, press `q`. Then start again with the flag.
 
-## Headless Mode (previews, agents, CI)
+## Headless Mode
 
-`just stack` is the same stack without a terminal attached: no hotkey loop, no
-dev server. The frontend is built once (a dev-mode bundle with production
-optimizations) and served statically by the instance's Caddy proxy, so the whole
-product lives behind **one origin** and a finished `up` leaves only Docker
-containers running — nothing to babysit.
+`just stack` runs the same stack without an attached terminal. There is no hotkey loop and no dev server. The frontend is built once and served statically by the proxy. The whole product lives behind one origin. A finished `up` leaves only Docker containers running.
 
 ```bash
 just stack up                  # bring everything up, print URLs, return
 just stack status --json      # machine-readable state (containers, health, URLs)
-just stack update             # rebuild + reload only changed services (the `r` hotkey)
+just stack update             # rebuild and reload only the changed services (the `r` hotkey)
 just stack update --frontend  # also rebuild the frontend bundle
-just stack down               # containers + volumes + state
+just stack down               # remove containers, volumes, and state
 ```
 
-All the `run_local` flags apply (`--instance`, `--no-doppler --env-file`,
-`--no-build`, `--binaries-dir`); CI can hand in a prebuilt bundle with
-`--frontend-dist`, and `--infra-only` stops after the infra bring-up + init
-(the CI bake mode — without Doppler the app services have no env to boot
-with, and the snapshot only captures infra volumes). The app is served at `<proxy>/app/` — the bundle resolves its
-backend from the origin it is served on, so the same stack works on localhost
-or behind a preview hostname without a rebuild.
+All the `run_local` flags apply to `stack` too. This includes `--instance`, `--no-doppler`, `--no-build`, and `--binaries-dir`. CI can pass a prebuilt bundle with `--frontend-dist`.
 
-`stack up` also caches the expensive infra init. The first cold run migrates
-the DB, waits out the FusionAuth kickstart, and creates the search indices,
-then saves those volumes as a content-addressed **init snapshot** (keyed by the
-migrations, kickstart, index mappings, image pins, and container platform —
-stored under `infra/local/generated/.snapshots`). Later runs whose inputs match restore the
-snapshot and skip the init entirely; any input change is a cache miss and a
-normal full init. `just stack snapshot` shows the current key; `--no-snapshot`
-opts out. This is also what makes Fly previews boot fast — CI bakes the
-snapshot into the preview image (see `infra/preview/README.md`).
+The app is served at `<proxy>/app/`. The bundle resolves its backend from the origin it is served on. The same stack works on localhost or behind a preview hostname without a rebuild.
+
+### Init Snapshots
+
+`stack up` caches the expensive infrastructure initialization. The first cold run:
+
+- Migrates the database
+- Waits for the FusionAuth kickstart
+- Creates the search indices
+
+It saves these volumes as an init snapshot. The snapshot is content-addressed and stored under `infra/local/generated/.snapshots`. Later runs restore the snapshot and skip the initialization. An input change causes a cache miss and a normal full init.
+
+Useful commands:
+
+```bash
+just stack snapshot           # show the current snapshot key
+just stack up --no-snapshot   # skip the snapshot cache
+```
+
+CI bakes the snapshot into the preview image. This is what makes Fly previews boot fast. See `infra/preview/README.md`.
 
 ## Common Commands
 
-Run local binaries against shared dev resources instead of a fully local stack:
+Run local binaries against shared dev resources instead of a full local stack:
 
 ```bash
 just run_dev
 ```
 
-See what a running (or stopped) instance looks like — endpoints with live
-reachability probes plus every container's state and host ports — without
-starting or rebuilding anything:
+`run_dev` uses shared dev resources. It needs Doppler and real cloud access. It is for contributors with team access.
+
+See what a running or stopped instance looks like. The output shows endpoints with live reachability probes, plus the state and host ports of every container. It does not start or rebuild anything:
 
 ```bash
 just status_local
@@ -176,7 +188,7 @@ Stop an instance but keep its volumes:
 just stop_local --instance agent-a
 ```
 
-Remove an instance's containers, volumes, and named-instance networks:
+Remove the containers, volumes, and named-instance networks of an instance:
 
 ```bash
 just destroy_local --instance agent-a
