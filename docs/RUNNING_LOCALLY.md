@@ -48,11 +48,11 @@ just run_local --no-doppler
 
 The local stack does not need Doppler. It uses the code-defined local configuration with dummy AWS credentials and fixed test secrets. Most contributors are not on the team, so this is the common path.
 
-The stack boots with stubbed values for every config the services require — including the third-party integrations (Google, GitHub, Stripe, CloudFront). Those flows won't actually work against real services with the stubs, but the stack starts and everything else (auth, documents, email, search) is fully functional.
+The stack boots with stubbed values for every config the services require, including the third-party integrations (Google, GitHub, Stripe, CloudFront). Those flows do not work against real services with the stubs. The rest of the stack is fully functional: auth, documents, email, and search.
 
 To use a real integration locally, supply its keys via `--env-file` — see [Integration Secrets](#integration-secrets) below.
 
-Run this command if you have Doppler access. It pulls the `lcl_personal` config and overlays the code-defined local defaults, so every integration value is real:
+Run this command if you have Doppler access. It pulls the `lcl_personal` config. Then it overlays the code-defined local defaults. Every integration value is real:
 
 ```bash
 just run_local
@@ -69,51 +69,54 @@ This command:
 
 When startup finishes, the command prints the frontend URL and the important service URLs.
 
-Open the frontend URL in your browser. The stack does not pre-create any accounts —
-passwordless login creates a user on demand, so just sign up with any email you like
-and enter the one-time code FusionAuth emails you. Locally that email lands in
-**Mailpit** at http://localhost:8025 instead of a real inbox.
+Open the frontend URL in your browser.
+
+The stack does not create accounts in advance. Passwordless login creates a user
+on demand. Register with any email address. FusionAuth sends you a one-time code
+by email. That email lands in **Mailpit** at http://localhost:8025, not in a real
+inbox.
 
 ### Seeding sample data (recommended)
 
-A bare stack has no documents, channels, or other content to click through. The
-seed CLI populates a realistic world — users, teams, channels, projects, documents,
-tasks, chats, calls, emails, and messages — wired up with realistic permissions:
+A bare stack has no content to click through. The seed CLI creates a realistic
+world: users, teams, channels, projects, documents, tasks, chats, calls, emails,
+and messages. The world uses realistic permissions.
+
+From the repository root, after the stack is up:
 
 ```bash
-# From the repository root, after the stack is up:
 just seed-scenario apply --file seed/scenarios/team-perms.json
 ```
 
-`apply` creates a FusionAuth account for each persona and prints per-persona login
-links (e.g. `http://alice.localhost:3000/app/login?email=alice@seed.macro.local`).
-Open each link in a plain browser tab — the per-persona hostnames keep separate
-cookie jars, so you can drive several personas side by side against the same stack.
+`apply` creates a FusionAuth account for each persona. It prints a login link per
+persona, for example `http://alice.localhost:3000/app/login?email=alice@seed.macro.local`.
+Open each link in a plain browser tab. Each persona hostname has its own cookie
+jar. You can drive several personas side by side against one stack.
 
-- `just seed-scenario status --file seed/scenarios/team-perms.json` — show what is
-  seeded and re-print the login links.
-- `just seed-scenario reset --file seed/scenarios/team-perms.json` — remove the
-  scenario's rows (and its user accounts by email).
-- `just seed-scenario matrix --file seed/scenarios/team-perms.json` — verify the
-  expected access level for every (user, entity) pair against the live DB.
+Useful commands:
 
-`apply` only touches rows carrying the scenario's `5eed` id marker (plus the persona
-accounts it created), so it is safe to run against a stack you have been testing in.
+- `just seed-scenario status --file seed/scenarios/team-perms.json` — show what is seeded and re-print the login links.
+- `just seed-scenario reset --file seed/scenarios/team-perms.json` — remove the scenario's rows and its user accounts by email.
+- `just seed-scenario matrix --file seed/scenarios/team-perms.json` — check the expected access level for every user and entity pair against the live database.
+
+`apply` touches only rows that carry the scenario `5eed` id marker, plus the
+persona accounts it created. It is safe to run against a stack that you tested in.
 
 ## Integration Secrets
 
-A `--no-doppler` stack boots with deterministic stubs for every value the services' config loaders require. The stubs are enough to start the services, but the third-party integrations they back won't work until you supply real values:
+A `--no-doppler` stack boots with deterministic stubs for every value the services' config loaders require. The stubs are enough to start the services. The third-party integrations they back do not work until you supply real values:
 
 | Integration | Keys | Stub behavior |
 | --- | --- | --- |
-| Google login / Gmail | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET_KEY` | Google SSO and Gmail inbox linking are unavailable. Local signup still works — the email service reports "no Gmail grant" and skips inbox syncing. |
+| Google login / Gmail | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET_KEY` | Google SSO and Gmail inbox linking are unavailable. Local signup still works. The email service reports no Gmail grant and skips inbox syncing. |
 | GitHub login | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_IDP_ID` | Login with GitHub is unavailable |
-| Stripe billing | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` | Checkout and subscription endpoints fail. Signup still works: the create-user webhook detects the stub key and skips the real Stripe call, storing a placeholder customer id. |
+| Stripe billing | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` | Checkout and subscription endpoints fail. Signup still works: the create-user webhook detects the stub key and skips the real Stripe call. It stores a placeholder customer id instead. |
 | CloudFront signed URLs | `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_DISTRIBUTION_URL`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PUBLIC_KEY_ID`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PRIVATE_KEY` | Document download URLs are unsigned (fine against local S3) |
 
 The other stubbed keys (`REDIS_HOST`, `MACRO_DB_URL`, `INTERNAL_API_KEY`, `AUTHENTICATION_SERVICE_SECRET_KEY`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`) are internal plumbing with correct local values — you never need to override them.
 
-To turn on an integration, create a `local.env` with the real values and pass it to `run_local`:
+To turn on an integration, create a `local.env` with the real values. Then pass it
+to `run_local`:
 
 ```bash
 just run_local --no-doppler --env-file ./local.env
@@ -149,9 +152,17 @@ just run_local --instance agent-a
 just run_local --instance agent-b
 ```
 
-Each instance has its own Compose project, volumes, networks, env files, proxy port, frontend port, and backend ports. The ports are deterministic for the instance name. The same name gets the same port window on every run.
+Each instance has its own resources:
 
-If the port window conflicts with another program on your machine, change the base port:
+- a Compose project
+- volumes and networks
+- env files
+- a proxy port, a frontend port, and backend ports
+
+The ports are deterministic for the instance name. The same name gets the same
+port window on every run.
+
+If the port window conflicts with another program, change the base port:
 
 ```bash
 just run_local --instance agent-a --port-base 23000
@@ -165,35 +176,33 @@ infra/local/generated/<instance>
 
 ## Port Conflicts (macOS)
 
-The default instance binds a fixed set of host ports, and macOS reserves some of
-them for its own services. If the app loads but API calls return unexpected HTML
-(or fail), a port is almost certainly hijacked by an unrelated process. The two
-most common on a fresh Mac:
+The default instance binds a fixed set of host ports. macOS reserves some of them
+for its own services. If the app loads but API calls return unexpected HTML, a
+port is probably hijacked by an unrelated process. The two most common conflicts
+on a fresh Mac:
 
-- **Port 8080** — macOS's built-in WebDriver service (`com.apple.WebDriver.HTTPService`)
-  listens on it when "Allow Remote Automation" is on. The auth service can't bind it.
-- **Port 8090** — often taken by another project's dev server (e.g. an Expo
-  `--port 8090`). The proxy can't bind it.
+- **Port 8080** — macOS WebDriver service (`com.apple.WebDriver.HTTPService`). It listens on this port when remote automation is on. The auth service cannot bind it.
+- **Port 8090** — another project's dev server, for example an Expo server with `--port 8090`. The proxy cannot bind it.
 
-Symptoms: the frontend loads, but login/API calls hit the squatter and you see
-HTML or errors in the browser console instead of JSON. `just doctor-local` reports
-the busy ports before you start.
+The frontend loads, but login and API calls hit the other process. You see HTML
+or console errors instead of JSON. `just doctor-local` reports the busy ports
+before you start.
 
-The fix is to run the stack on a port window that is free on your machine — no
-need to kill the other process:
+Run the stack on a port window that is free on your machine. You do not need to
+kill the other process:
 
 ```bash
 just doctor-local                         # see which ports are busy
 just run_local --no-doppler --instance test --port-base 31000
 ```
 
-A named instance binds every service at `port-base + offset`, so a free base like
-`31000` moves the whole stack to one contiguous window. Use whatever base is free
-on your machine (see `just doctor-local`), and keep the same `--instance` name and
-`--port-base` on later runs so the ports stay deterministic.
+A named instance binds every service at `port-base + offset`. A free base like
+`31000` moves the whole stack to one contiguous window. Use any base that is free
+on your machine. See `just doctor-local` for the busy ports. Keep the same
+`--instance` name and `--port-base` on later runs so the ports stay deterministic.
 
-Everything that talks to the stack takes the same two flags — run it, seed it, and
-check it with the identical `--instance` / `--port-base`:
+Use the same two flags for every command. Run the stack, seed it, and check it
+with the same `--instance` and `--port-base` values:
 
 ```bash
 just run_local --no-doppler --instance test --port-base 31000
@@ -202,15 +211,15 @@ just seed-scenario --instance test --port-base 31000 status --file seed/scenario
 just status_local --instance test
 ```
 
-If you omit `--port-base`, a named instance still gets a deterministic (but
-different) port window derived from its name — so a stack started with an explicit
-`--port-base` must be seeded with the same explicit `--port-base`, or the seed CLI
-will look at the wrong database. The default instance (no `--instance`) always uses
-the fixed ports and needs no extra flags.
+If you omit `--port-base`, a named instance gets a deterministic port window
+derived from its name. That window is different from the one you chose. A stack
+started with an explicit `--port-base` must be seeded with the same explicit
+`--port-base`, or the seed CLI looks at the wrong database. The default instance
+(no `--instance`) always uses the fixed ports and needs no extra flags.
 
-Note: the seeded persona login links (below) embed the frontend port, so re-run
-`just seed-scenario apply` after switching ports to get links that match the new
-window. `just status_local` prints the live endpoints for whatever is running.
+The seeded persona login links embed the frontend port. If you switch ports, run
+`just seed-scenario apply` again to get links that match the new window.
+`just status_local` prints the live endpoints for whatever is running.
 
 ## What the Stack Rebuilds
 
