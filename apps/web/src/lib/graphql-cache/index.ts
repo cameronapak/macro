@@ -4,6 +4,13 @@
  */
 
 export {
+  compileEntityResolvers,
+  type EntityFromArgumentDescriptor,
+  type EntityResolverConfig,
+  type EntityResolverWire,
+  entityFromArgument,
+} from './exchange/entity-resolvers';
+export {
   type CachedSelection,
   type CachedVariant,
   type InspectionSelection,
@@ -22,9 +29,11 @@ export {
   prependUnique,
   type QueryRevalidation,
   remove,
+  removeEmbeddedLink,
   type Selection,
   select,
   update,
+  upsertEmbeddedLink,
 } from './exchange/optimistic';
 export {
   type RecordSelection,

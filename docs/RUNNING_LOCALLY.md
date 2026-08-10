@@ -38,6 +38,8 @@ Nix requires these experimental features to work. The command above enables them
 experimental-features = nix-command flakes
 ```
 
+The default shell does not include the Tauri platform dependencies. They are large, so they live in their own shells. For Linux desktop development, use `nix develop .#tauri-linux`. For Android development on x86_64 Linux, use `nix develop .#tauri-android`.
+
 ## Start the Stack
 
 Run this command from the repository root if you do not have Doppler access:

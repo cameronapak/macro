@@ -58,6 +58,7 @@ import FolderUser from '@phosphor/folder-user.svg';
 import GlobeIcon from '@phosphor/globe.svg';
 import FileImage from '@phosphor/image.svg';
 import Canvas from '@phosphor/pencil-circle.svg';
+import ScrollIcon from '@phosphor/scroll.svg';
 import Users from '@phosphor/users.svg';
 import type { PreviewItem } from '@queries/preview';
 import type { ChannelType } from '@service-cognition/generated/schemas/channelType';
@@ -284,6 +285,12 @@ export const ENTITY_ICON_CONFIGS: Record<EntityWithValidIcon, IconConfig> = {
     background: 'bg-snippet/20',
     prettyName: 'Snippet',
   },
+  skill: {
+    icon: ScrollIcon,
+    foreground: 'text-default',
+    background: 'bg-default/20',
+    prettyName: 'Skill',
+  },
   automation: {
     icon: WideAutomation,
     foreground: 'text-default',
@@ -370,6 +377,7 @@ const WIDE_ICONS: Record<
   pr: GithubIcon,
   task: WideTask,
   snippet: WideSnippet,
+  skill: ScrollIcon,
   automation: WideAutomation,
   crm_company: AnimatedCompanyIcon,
   company: AnimatedCompanyIcon,

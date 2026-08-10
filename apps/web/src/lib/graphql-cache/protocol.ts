@@ -1,3 +1,5 @@
+import type { EntityResolverWire } from './exchange/entity-resolvers';
+
 /**
  * Wire protocol between page contexts and the cache worker (the `CacheHost`
  * RPC from the design doc, apps/web/docs/graphql-normalized-cache-plan.md §4).
@@ -77,7 +79,29 @@ export type OptimisticLinkPatchWire = {
   path: EmbeddedLinkPathSegment[];
   operation:
     | { kind: 'remove'; entityKey: string }
-    | { kind: 'prependUnique'; entityKey: string };
+    | { kind: 'prependUnique'; entityKey: string }
+    | {
+        kind: 'removeEmbeddedLink';
+        listItem: {
+          whereField: string;
+          equals: string | number | boolean | null;
+        };
+        linkField: string;
+        countField: string;
+        entityKey: string;
+      }
+    | {
+        kind: 'upsertEmbeddedLink';
+        listItem: {
+          whereField: string;
+          equals: string | number | boolean | null;
+        };
+        linkField: string;
+        countField: string;
+        entityKey: string;
+        /** Scalar fields used only when the embedded item must be created. */
+        insertFields: Record<string, string | number | boolean | null>;
+      };
 };
 
 export type CachedQueryVariantWire = {
@@ -162,6 +186,8 @@ export type CacheRequest = { id: number } & (
       variables?: Record<string, unknown>;
       /** May overtake unrelated observational reads, never ordering barriers. */
       priority?: CacheReadPriority;
+      /** Per-read synthetic entity relations. */
+      entityResolvers?: readonly EntityResolverWire[];
     }
   | {
       kind: 'write';

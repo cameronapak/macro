@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDate, Utc};
+use futures::try_join;
 use rootcause::Report;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
@@ -296,6 +297,18 @@ struct OccurrenceJoinRow {
     is_read_only: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+}
+
+struct OverrideAttendeeRow {
+    event_id: Uuid,
+    recurrence_id: String,
+    email: Option<String>,
+    display_name: Option<String>,
+    response_status: Option<String>,
+    is_organizer: Option<bool>,
+    is_optional: Option<bool>,
+    is_self: Option<bool>,
+    comment: Option<String>,
 }
 
 struct AttendeeRow {
@@ -752,13 +765,27 @@ impl CalendarRepository for PgCalendarRepository {
         .await
         .map_err(report)?;
         let event_ids: Vec<_> = rows.iter().map(|row| row.event_id).collect();
-        let attendees = fetch_attendees(&self.pool, &event_ids).await?;
+        let (attendees, override_attendees) = try_join!(
+            fetch_attendees(&self.pool, &event_ids),
+            fetch_override_attendees(&self.pool, &event_ids),
+        )?;
         rows.into_iter()
             .map(|row| {
                 let event_id = row.event_id;
                 let occurrence = occurrence_from_join(&row)?;
-                let event =
-                    event_from_join(row, attendees.get(&event_id).cloned().unwrap_or_default())?;
+                // An exception's attendee list replaces the series list for
+                // that occurrence alone: Google records an instance-scoped
+                // RSVP there and never on the master.
+                let effective = occurrence
+                    .recurrence_id
+                    .as_ref()
+                    .and_then(|recurrence_id| {
+                        override_attendees.get(&(event_id, recurrence_id.clone()))
+                    })
+                    .or_else(|| attendees.get(&event_id))
+                    .cloned()
+                    .unwrap_or_default();
+                let event = event_from_join(row, effective)?;
                 Ok((event, occurrence))
             })
             .collect()
@@ -2244,9 +2271,9 @@ async fn replace_overrides(
             INSERT INTO calendar_event_overrides (
                 event_id, recurrence_id, original_starts_at, original_start_date,
                 starts_at, ends_at, start_date, end_date,
-                title, description, location, status
+                title, description, location, status, attendees_overridden
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             "#,
             event_id,
             &event_override.recurrence_id,
@@ -2260,10 +2287,41 @@ async fn replace_overrides(
             event_override.description.as_deref(),
             event_override.location.as_deref(),
             event_override.status.map(EventStatus::as_str),
+            event_override.attendees.is_some(),
         )
         .execute(&mut **tx)
         .await
         .map_err(report)?;
+        for attendee in event_override.attendees.iter().flatten() {
+            sqlx::query!(
+                r#"
+                INSERT INTO calendar_event_override_attendees (
+                    event_id, recurrence_id, email, display_name, response_status,
+                    is_organizer, is_optional, is_self, comment
+                )
+                VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (event_id, recurrence_id, email) DO UPDATE SET
+                    display_name = EXCLUDED.display_name,
+                    response_status = EXCLUDED.response_status,
+                    is_organizer = EXCLUDED.is_organizer,
+                    is_optional = EXCLUDED.is_optional,
+                    is_self = EXCLUDED.is_self,
+                    comment = EXCLUDED.comment
+                "#,
+                event_id,
+                &event_override.recurrence_id,
+                &attendee.email,
+                attendee.display_name.as_deref(),
+                attendee.response_status.as_str(),
+                attendee.is_organizer,
+                attendee.is_optional,
+                attendee.is_self,
+                attendee.comment.as_deref(),
+            )
+            .execute(&mut **tx)
+            .await
+            .map_err(report)?;
+        }
     }
     Ok(())
 }
@@ -2346,6 +2404,64 @@ async fn fetch_attendees(
             });
     }
     Ok(by_event)
+}
+
+/// Per-occurrence attendee overrides for the supplied events, keyed by
+/// `(event_id, recurrence_id)`.
+async fn fetch_override_attendees(
+    pool: &PgPool,
+    event_ids: &[Uuid],
+) -> Result<HashMap<(Uuid, String), Vec<CalendarAttendee>>, Report> {
+    if event_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    // Driven from the overrides table so an explicitly-empty replacement
+    // list still produces a map entry: absence of an entry means "inherit
+    // the series attendees", never "the exception has no attendees".
+    let rows = sqlx::query_as!(
+        OverrideAttendeeRow,
+        r#"
+        SELECT
+            override.event_id,
+            override.recurrence_id,
+            attendee.email AS "email?",
+            attendee.display_name,
+            attendee.response_status AS "response_status?",
+            attendee.is_organizer AS "is_organizer?",
+            attendee.is_optional AS "is_optional?",
+            attendee.is_self AS "is_self?",
+            attendee.comment
+        FROM calendar_event_overrides override
+        LEFT JOIN calendar_event_override_attendees attendee
+            ON attendee.event_id = override.event_id
+           AND attendee.recurrence_id = override.recurrence_id
+        WHERE override.event_id = ANY($1)
+          AND override.attendees_overridden
+        ORDER BY override.event_id, override.recurrence_id, attendee.email
+        "#,
+        event_ids,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(report)?;
+    let mut by_occurrence: HashMap<(Uuid, String), Vec<CalendarAttendee>> = HashMap::new();
+    for row in rows {
+        let attendees = by_occurrence
+            .entry((row.event_id, row.recurrence_id))
+            .or_default();
+        if let (Some(email), Some(response_status)) = (row.email, row.response_status) {
+            attendees.push(CalendarAttendee {
+                email,
+                display_name: row.display_name,
+                response_status: attendee_status(&response_status),
+                is_organizer: row.is_organizer.unwrap_or_default(),
+                is_optional: row.is_optional.unwrap_or_default(),
+                is_self: row.is_self.unwrap_or_default(),
+                comment: row.comment,
+            });
+        }
+    }
+    Ok(by_occurrence)
 }
 
 type SplitTime = (
