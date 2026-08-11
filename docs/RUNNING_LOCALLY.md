@@ -8,8 +8,6 @@ Install these tools before you start:
 
 1. [Nix](https://nix.dev/install-nix) package manager
 2. [Docker](https://docs.docker.com/get-docker/) with the Compose v2 plugin (Docker Desktop, OrbStack, or Colima work)
-3. [just](https://just.systems/man/en/installation.html) command runner
-4. [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html), the Rust package manager
 
 Clone the repository:
 
@@ -20,7 +18,7 @@ cd macro
 
 ## Enter the Nix Shell
 
-The Nix shell provides the Rust toolchain, Bun, sqlx, zig, and cargo-zigbuild.
+The Nix shell provides `just`, Cargo, the Rust toolchain, Bun, sqlx, zig, and cargo-zigbuild. You do not need to install `just` or Cargo separately.
 
 ```bash
 nix develop
