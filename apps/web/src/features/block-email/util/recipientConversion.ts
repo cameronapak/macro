@@ -6,6 +6,10 @@ import type { ContactInfo } from '@core/user/types';
 import { emailToId } from '@core/user/util';
 import type { ApiMessage } from '@service-email/generated/schemas';
 import type { EmailRecipient } from '../component/EmailContext';
+import {
+  isUsableContactEmail,
+  parseAddressList,
+} from './parseAddressList';
 
 const extractedContactInfo = (contact: ContactInfo): ExtractedContactInfo => ({
   ...contact,
@@ -37,64 +41,6 @@ type ApiMessageWithReplyTo = ApiMessage & {
   reply_to?: ContactInfo[] | null;
 };
 
-const looksLikeEmail = (value: string): boolean =>
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-
-/**
- * Parse a Reply-To / address-list header value into contacts.
- * Supports `email`, `Name <email>`, and comma-separated lists.
- */
-const parseAddressList = (raw: string): ContactInfo[] => {
-  const contacts: ContactInfo[] = [];
-  let current = '';
-  let inQuotes = false;
-  let inAngles = false;
-
-  const pushPart = (part: string) => {
-    const trimmed = part.trim();
-    if (!trimmed) return;
-
-    const angled = trimmed.match(/^(.*?)\s*<([^>]+)>\s*$/);
-    if (angled) {
-      const email = angled[2].trim();
-      if (!looksLikeEmail(email)) return;
-      const name = angled[1].trim().replace(/^"|"$/g, '');
-      contacts.push(name ? { email, name } : { email });
-      return;
-    }
-
-    if (looksLikeEmail(trimmed)) {
-      contacts.push({ email: trimmed });
-    }
-  };
-
-  for (const char of raw) {
-    if (char === '"' && !inAngles) {
-      inQuotes = !inQuotes;
-      current += char;
-      continue;
-    }
-    if (char === '<' && !inQuotes) {
-      inAngles = true;
-      current += char;
-      continue;
-    }
-    if (char === '>' && !inQuotes) {
-      inAngles = false;
-      current += char;
-      continue;
-    }
-    if (char === ',' && !inQuotes && !inAngles) {
-      pushPart(current);
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-  pushPart(current);
-  return contacts;
-};
-
 const replyToFromHeadersJson = (
   headersJson: unknown
 ): ContactInfo[] => {
@@ -119,11 +65,29 @@ export const getUsableReplyToContacts = (
 ): ContactInfo[] => {
   const withReplyTo = message as ApiMessageWithReplyTo;
   if (Array.isArray(withReplyTo.reply_to) && withReplyTo.reply_to.length > 0) {
-    return withReplyTo.reply_to.filter(
-      (c) => typeof c?.email === 'string' && looksLikeEmail(c.email.trim())
-    );
+    const filtered = withReplyTo.reply_to.filter(isUsableContactEmail);
+    // Only treat first-class reply_to as authoritative when it yields usable
+    // contacts; otherwise fall through to headers_json Reply-To.
+    if (filtered.length > 0) return filtered;
   }
   return replyToFromHeadersJson(message.headers_json);
+};
+
+const excludeEmails = (
+  recipients: ContactInfo[],
+  ...emails: string[]
+): ContactInfo[] => {
+  const excluded = new Set(emails);
+  return recipients.filter((recipient) => !excluded.has(recipient.email));
+};
+
+const dedupeByEmail = (recipients: ContactInfo[]): ContactInfo[] => {
+  const seen = new Set<string>();
+  return recipients.filter((recipient) => {
+    if (seen.has(recipient.email)) return false;
+    seen.add(recipient.email);
+    return true;
+  });
 };
 
 // Note: because of the logic, this works with a reference message that is either the message being replied to, or the draft.
@@ -146,25 +110,23 @@ export const getReplyAllRecipients = (
     }
     // Otherwise keep existing recipients
   } else {
-    const replyTo = getUsableReplyToContacts(referenceMessage);
+    const replyTo = excludeEmails(
+      getUsableReplyToContacts(referenceMessage),
+      userEmail
+    );
     if (replyTo.length > 0) {
       // Reply-All with usable Reply-To: To = Reply-To; Cc = parent To+Cc
       // minus user and minus addresses already in To. From is not added to To.
       to = replyTo.map(convertContactInfoToEmailRecipient);
-      const toEmails = new Set(replyTo.map((c) => c.email));
-      const ccContacts = [...referenceMessage.to, ...referenceMessage.cc].filter(
-        (recipient) =>
-          recipient.email !== userEmail && !toEmails.has(recipient.email)
+      const toEmails = replyTo.map((c) => c.email);
+      const ccContacts = dedupeByEmail(
+        excludeEmails(
+          [...referenceMessage.to, ...referenceMessage.cc],
+          userEmail,
+          ...toEmails
+        )
       );
-      // Dedupe while preserving order
-      const seen = new Set<string>();
-      cc = ccContacts
-        .filter((recipient) => {
-          if (seen.has(recipient.email)) return false;
-          seen.add(recipient.email);
-          return true;
-        })
-        .map(convertContactInfoToEmailRecipient);
+      cc = ccContacts.map(convertContactInfoToEmailRecipient);
       return { to, cc, bcc: [] };
     }
 
@@ -173,20 +135,20 @@ export const getReplyAllRecipients = (
     const sender: ContactInfo = referenceMessage.from ?? {
       email: '',
     };
-    const otherRecipients = referenceMessage.to.filter(
-      (recipient) =>
-        recipient.email !== userEmail && recipient.email !== sender.email
+    const otherRecipients = excludeEmails(
+      referenceMessage.to,
+      userEmail,
+      sender.email
     );
     to = [sender, ...otherRecipients].map(convertContactInfoToEmailRecipient);
   }
   if (
     referenceMessage.cc &&
-    referenceMessage.cc.filter((recipient) => recipient.email !== userEmail)
-      .length > 0
+    excludeEmails(referenceMessage.cc, userEmail).length > 0
   ) {
-    cc = referenceMessage.cc
-      .filter((recipient) => recipient.email !== userEmail)
-      .map(convertContactInfoToEmailRecipient);
+    cc = excludeEmails(referenceMessage.cc, userEmail).map(
+      convertContactInfoToEmailRecipient
+    );
   }
   return { to, cc, bcc: [] };
 };

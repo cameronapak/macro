@@ -91,6 +91,34 @@ describe('getReplyRecipientsFromParent', () => {
     expect(emailsOf(result.to)).toEqual(['sender@example.com']);
     expect(result.cc).toEqual([]);
   });
+
+  it('prefers first-class reply_to over headers_json Reply-To', () => {
+    const parent = message({
+      from: { email: 'notifications@letterbird.co' },
+      to: [{ email: USER }],
+      reply_to: [{ email: 'first-class@example.com', name: 'First Class' }],
+      replyToHeader: 'header@example.com',
+    });
+
+    const result = getReplyRecipientsFromParent(parent, USER);
+
+    expect(emailsOf(result.to)).toEqual(['first-class@example.com']);
+    expect(result.cc).toEqual([]);
+  });
+
+  it('falls back to headers_json when first-class reply_to is unusable', () => {
+    const parent = message({
+      from: { email: 'sender@example.com' },
+      to: [{ email: USER }],
+      reply_to: [{ email: 'not-an-email' }, { email: '   ' }],
+      replyToHeader: 'header@example.com',
+    });
+
+    const result = getReplyRecipientsFromParent(parent, USER);
+
+    expect(emailsOf(result.to)).toEqual(['header@example.com']);
+    expect(result.cc).toEqual([]);
+  });
 });
 
 describe('getReplyAllRecipients', () => {
@@ -117,7 +145,7 @@ describe('getReplyAllRecipients', () => {
       from: { email: 'notifications@letterbird.co' },
       to: [{ email: USER }, { email: 'other@example.com' }],
       cc: [{ email: USER }, { email: 'cc@example.com' }],
-      replyToHeader: 'person@example.com',
+      replyToHeader: `${USER}, person@example.com`,
     });
 
     const result = getReplyAllRecipients(parent, USER);
