@@ -24,6 +24,7 @@ import {
 } from 'solid-js';
 import { themeReactive } from '../../theme/signals/themeReactive';
 import { themeUpdate } from '../../theme/signals/themeSignals';
+import { fitToWidthZoom } from '../util/fitToWidthZoom';
 import { isPersonalMessage } from '../util/isPersonalMessage';
 import {
   fetchImagesViaPlatform,
@@ -153,7 +154,13 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
     // as a left indent only.
     const quoteContain =
       'blockquote{margin-block:0.75em!important;margin-inline-start:1.5em!important;margin-inline-end:0!important;max-width:100%!important;box-sizing:border-box;}';
-    styleEl.textContent = `img{display: var(--macro-email-img-display, initial); max-width: 100% !important; height: auto !important;}${signatureContain}${quoteContain}${fontOverride}`;
+    // GitHub (and similar) review mail uses one unwrapped <pre> line. Default
+    // `white-space: pre` inflates scrollWidth and used to zoom the whole
+    // letter to dust. Wrap like Gmail. Leave designed tables alone so
+    // newsletters can still use the fit-to-width floor below.
+    const preContain =
+      'pre,code{white-space:pre-wrap!important;overflow-wrap:anywhere;word-break:break-word;max-width:100%!important;box-sizing:border-box;}';
+    styleEl.textContent = `img{display: var(--macro-email-img-display, initial); max-width: 100% !important; height: auto !important;}${signatureContain}${quoteContain}${preContain}${fontOverride}`;
     shadow.appendChild(styleEl);
     const messageDiv = document.createElement('div');
     messageDiv.innerHTML = source()?.mainContent ?? '';
@@ -253,7 +260,8 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
     );
   });
 
-  // Scale down wide HTML emails to fit the container width (like Gmail on mobile)
+  // After containment, shrink leftover wide canvases (newsletter tables)
+  // to the pane. Pathological width is floored so type stays readable.
   createEffect(() => {
     const container = host();
     // Re-run when source changes
@@ -284,18 +292,22 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
       messageDiv.style.zoom = '';
       messageDiv.style.overflow = '';
 
-      const containerWidth = container.clientWidth;
-      const contentWidth = messageDiv.scrollWidth;
-
-      if (containerWidth > 0 && contentWidth > containerWidth) {
-        const scale = containerWidth / contentWidth;
-        // Use zoom instead of transform: scale() so that backgrounds,
-        // borders, and layout all shrink together without clipping.
-        messageDiv.style.zoom = `${scale}`;
+      const fit = fitToWidthZoom({
+        containerWidth: container.clientWidth,
+        contentWidth: messageDiv.scrollWidth,
+      });
+      if (!fit) {
+        // When content fits, leave overflow alone. overflow:auto on a fitting
+        // body turns hidden tracking-pixel divs into a message-height scrollbar.
+        return;
       }
-      // When content fits, leave overflow alone — an overflow:auto wrapper
-      // turns hidden tracking-pixel divs (e.g. max-height:1px) into a
-      // message-height scrollbar.
+      // Use zoom instead of transform: scale() so backgrounds, borders, and
+      // layout shrink together without clipping. The floor keeps leftover
+      // canvas overflow (a 600px newsletter on a skinny pane) readable.
+      messageDiv.style.zoom = `${fit.zoom}`;
+      if (fit.overflowsAfterZoom) {
+        messageDiv.style.overflowX = 'auto';
+      }
     };
 
     // Re-run on container resize (e.g. orientation change, split resize)
