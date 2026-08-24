@@ -1079,7 +1079,12 @@ fn build_thread(
         bcc: vec![],
         labels,
         body_text: Some(body_text.clone()),
-        body_html_sanitized: Some(format!("<p>{body_text}</p>")),
+        body_html_sanitized: Some(
+            thread_spec
+                .body_html
+                .clone()
+                .unwrap_or_else(|| format!("<p>{body_text}</p>")),
+        ),
         body_macro: None,
         attachments: vec![],
         attachments_draft: vec![],
