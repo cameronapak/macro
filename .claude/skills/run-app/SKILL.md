@@ -74,6 +74,14 @@ If the page loads and API calls fail, the backend is down. Run `just stack statu
 
 Do not chase `agent_harness_service` restart loops when `DOPPLER_TOKEN` is absent. That loop is expected.
 
+## Secrets
+
+Set `NIX_CACHE_AWS_ACCESS_KEY_ID` and `NIX_CACHE_AWS_SECRET_ACCESS_KEY` as Cursor environment secrets (read-only on the Nix cache bucket). Set `DOPPLER_TOKEN` as a Cursor **runtime** secret: a Doppler service token for the `local` project's `lcl_preview` config (`DOPPLER_PREVIEW_TOKEN` also works). Do not paste the token into chat. With that token, `bash .cursor/stack.sh` pulls secrets instead of `--no-doppler`. Install/bake stays on stubs. Existing agents do not pick up newly added secrets — start a new agent after adding one.
+
+## Infra and tests
+
+Nothing runs after boot. Before DB-backed `cargo test -p <crate>`, run `bash .cursor/infra.sh` once (Docker, Postgres, Redis). Pure-logic crate tests need nothing. `just seed-scenario apply --file seed/scenarios/team-perms.json` is optional, for multi-user team/permission fixtures.
+
 ## Status
 
 ```bash

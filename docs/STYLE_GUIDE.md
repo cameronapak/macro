@@ -77,9 +77,10 @@ TypeScript · `[ui]` UI / UX conventions
   (fallback model, retry story, or documented degradation). (#4296)
 - **CS-21** `[err]` Wire usage metering on every invocation path — MCP-triggered tool
   calls count too, not just the primary path. (#4296)
-- **CS-22** `[err]` Tracing: `#[instrument(err)]` only on `Result` functions; log errors
-  as structured fields (`tracing::error!(error=?e, "msg")`); prefer `.inspect_err` over
-  `if let Err(e)` for logging. (also: CLAUDE.md)
+- **CS-22** `[err]` Tracing: `#[instrument(err)]` only on `Result` functions; omit `err`
+  on `Option`, `()`, and other non-`Result` returns. Do not set `level = "info"`. Log
+  errors as structured fields (`tracing::error!(error=?e, "msg")`); prefer
+  `.inspect_err` over `if let Err(e)` for logging.
 - **CS-23** `[arch]` Do not grow `macro_db_client` — new domain logic gets a new crate;
   the catch-all crates must shrink, not accumulate. (#4380)
 - **CS-24** `[arch]` Keep source files under ~1000 lines — split before a reviewer has
@@ -132,16 +133,16 @@ TypeScript · `[ui]` UI / UX conventions
 - **CS-45** `[rust]` CLI binaries use `clap`, not hand-rolled arg parsing. (#3678)
 - **CS-46** `[rust]` Use `rootcause` for error handling in new code — it's preferred
   over `anyhow` these days. In code that's still on anyhow, prefer `bail!` for early
-  error returns. (also: CLAUDE.md)
+  error returns.
 - **CS-47** `[perf]` Keep latency-critical services thin: push bytes directly instead of
   round-tripping through presigned URLs or extra services; dispatch non-blocking
   background work with `wait_until`. (#3781)
 - **CS-48** `[perf]` Don't do per-message work on hot websocket paths — accumulate and
   flush on a timer/alarm. (#3961)
 - **CS-49** `[test]` Tests live in a sibling `test.rs`, not inline `#[cfg(test)]` blocks
-  in the implementation file. (#4647 · also: CLAUDE.md)
+  in the implementation file. (#4647 · also: AGENTS.md)
 - **CS-50** `[test]` Update tests and run `just prepare_db` with any db-crate change.
-  (also: CLAUDE.md)
+  (also: AGENTS.md)
 - **CS-51** `[arch]` Domain modules reference no infrastructure or transport: no AWS
   SDKs, redis, reqwest, opensearch, kafka, axum, or http types under `src/domain/**` —
   wrap clients in outbound adapters behind ports; response mapping lives in inbound.
@@ -156,6 +157,9 @@ TypeScript · `[ui]` UI / UX conventions
 - **CS-53** `[arch]` Inbound adapters run no database queries — handlers, tools, and
   listeners call a domain service backed by an outbound repository, never sqlx
   directly. (enforced: ast-grep `rust-no-sqlx-in-inbound`, warning)
+- **CS-54** `[rust]` New crates put `#![deny(missing_docs)]` on `lib.rs` so every public
+  item has a doc comment.
+- **CS-55** `[test]` Do not mark rustdoc examples `ignore` unless the user asked.
 
 ## Frontend and shared TypeScript (`apps/web`, `packages/`)
 
