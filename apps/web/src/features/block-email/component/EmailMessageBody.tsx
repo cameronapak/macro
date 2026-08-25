@@ -137,6 +137,10 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
   const host = createMemo(() => {
     themeUpdate();
     const hostContainer = document.createElement('div');
+    // Stay the pane width so leftover-canvas measure uses clientWidth, not
+    // the table's min-content. Ancestors clip overflow-x.
+    hostContainer.style.minWidth = '0';
+    hostContainer.style.width = '100%';
     const shadow = hostContainer.attachShadow({ mode: 'open' });
     // Style that uses a CSS variable to control image visibility
     const styleEl = document.createElement('style');
@@ -325,7 +329,7 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
       }}
     >
       <div
-        class="relative"
+        class="relative min-w-0 w-full"
         classList={{
           isPersonal: isPersonal(),
           'line-clamp-3': !props.isBodyExpanded(),
