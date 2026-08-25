@@ -30,7 +30,8 @@ MacroDB reset, `prepare_db`, or crate SQL tests: `docs/CLOUD_STORAGE.md`.
 
 ## Testing
 
-Crate or SQL tests: `docs/CLOUD_STORAGE.md`. Frontend: `apps/web/AGENTS.md`.
+Crate or SQL tests: `docs/CLOUD_STORAGE.md`.
+Frontend: `apps/web/AGENTS.md`.
 
 ## Style
 
@@ -46,4 +47,5 @@ Changing `crates/` or Rust services: `.claude/skills/cloud-storage-hexagonal-arc
 
 ## Run
 
-Local stack, Cursor Cloud, or seeing UI edits: `.claude/skills/run-app/SKILL.md`.
+Laptop local stack or frontend against hosted services: `docs/RUNNING_LOCALLY.md`.
+Cursor Cloud or seeing UI edits there: `.claude/skills/run-app/SKILL.md`.

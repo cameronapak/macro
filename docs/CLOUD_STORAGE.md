@@ -20,7 +20,8 @@ just create_networks
 just run_dbs -d
 just setup_test_envs
 just initialize_dbs
-cargo test -p {crate}
+crate=macro_db_client  # replace with the crate under test
+cargo test -p "$crate"
 ```
 
 Leave `SQLX_OFFLINE` unset for `cargo test`. `SQLX_OFFLINE=true` is only for
@@ -31,11 +32,12 @@ not flip offline mode on for tests. After SQL or db-crate changes, run
 
 `just setup_macrodb` and `just initialize_dbs` are the same recipe. Some MacroDB
 table and column names are camelCase; cast them when reading
-(`SELECT "userId" AS user_id`).
+(`SELECT "userId" AS user_id`). Schemas live in
+`crates/macro_db_client/migrations/`.
 
 ## clean up
 
-To reset the local database, use the repository-root database recipes rather than deleting unrelated containers: `just crates/macro_db_client/drop_db -y -f`, then `just setup_macrodb`.
+To reset the local database, use the repository-root database recipes rather than deleting unrelated containers: `just crates/macro_db_client/drop_db -y -f`, then `just setup_macrodb`. If `just setup_macrodb` still fails, run `just force_drop_db` from `crates/macro_db_client`, then `just setup_macrodb` from the repository root.
 
 ## Deployment
 
