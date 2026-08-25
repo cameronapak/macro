@@ -10,10 +10,7 @@ export function fitToWidthZoom(args: {
   if (containerWidth <= 0 || contentWidth <= containerWidth) {
     return undefined;
   }
-  const zoom = Math.max(
-    FIT_TO_WIDTH_ZOOM_FLOOR,
-    containerWidth / contentWidth
-  );
+  const zoom = Math.max(FIT_TO_WIDTH_ZOOM_FLOOR, containerWidth / contentWidth);
   return {
     zoom,
     overflowsAfterZoom: contentWidth * zoom > containerWidth + 1,

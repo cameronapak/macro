@@ -21,9 +21,7 @@ describe('fitToWidthZoom', () => {
   });
 
   it('uses the raw ratio for a mild newsletter overflow', () => {
-    expect(
-      fitToWidthZoom({ containerWidth: 800, contentWidth: 836 })
-    ).toEqual({
+    expect(fitToWidthZoom({ containerWidth: 800, contentWidth: 836 })).toEqual({
       zoom: 800 / 836,
       overflowsAfterZoom: false,
     });
