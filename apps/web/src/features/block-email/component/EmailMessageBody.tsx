@@ -262,6 +262,7 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
       if (messageDiv instanceof HTMLElement) {
         messageDiv.style.zoom = '';
         messageDiv.style.overflow = '';
+        messageDiv.style.overflowX = '';
       }
     };
 
@@ -276,9 +277,11 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
       const messageDiv = root.querySelector('div');
       if (!messageDiv || !(messageDiv instanceof HTMLElement)) return;
 
-      // Reset any previous scaling before measuring
+      // Reset any previous scaling before measuring. overflowX is a longhand
+      // and survives clearing the overflow shorthand.
       messageDiv.style.zoom = '';
       messageDiv.style.overflow = '';
+      messageDiv.style.overflowX = '';
 
       const fit = fitToWidthZoom({
         containerWidth: container.clientWidth,
