@@ -3,7 +3,6 @@ import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
 import { DEFAULT_THEMES } from '@theme/constants';
 import { EMAIL_BODY_CONTAINMENT_CSS } from '../../../../features/block-email/util/emailBodyContainmentCss';
-import { fitToWidthZoom } from '../../../../features/block-email/util/fitToWidthZoom';
 
 /**
  * Email fixture format - matches the structure from email service.
@@ -139,29 +138,16 @@ async function mountEmailBody(args: {
   );
 }
 
-async function applyFitToWidth(page: Page): Promise<void> {
+async function applyOverflowX(page: Page): Promise<void> {
   const host = page.locator('.email-host');
-  const measured = await host.evaluate((el) => {
-    const message = el.shadowRoot?.querySelector('div');
-    if (!(message instanceof HTMLElement)) {
-      return undefined;
-    }
-    return {
-      containerWidth: el.clientWidth,
-      contentWidth: message.scrollWidth,
-    };
-  });
-  if (!measured) return;
-  const fit = fitToWidthZoom(measured);
-  if (!fit) return;
-  await host.evaluate((el, next) => {
+  await host.evaluate((el) => {
     const message = el.shadowRoot?.querySelector('div');
     if (!(message instanceof HTMLElement)) return;
-    message.style.zoom = String(next.zoom);
-    if (next.overflowsAfterZoom) {
+    message.style.overflowX = '';
+    if (message.scrollWidth - el.clientWidth > 1) {
       message.style.overflowX = 'auto';
     }
-  }, fit);
+  });
 }
 
 const fixtures = loadFixtures();
@@ -182,7 +168,7 @@ test.describe('Email Rendering', () => {
             html: fixture.body_html_sanitized,
           });
           await page.waitForLoadState('networkidle');
-          await applyFitToWidth(page);
+          await applyOverflowX(page);
 
           const screenshot = await page.screenshot();
           await testInfo.attach(`${themeName}-${containerWidth}`, {

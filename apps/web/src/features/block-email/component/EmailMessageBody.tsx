@@ -25,7 +25,6 @@ import {
 import { themeReactive } from '../../theme/signals/themeReactive';
 import { themeUpdate } from '../../theme/signals/themeSignals';
 import { EMAIL_BODY_CONTAINMENT_CSS } from '../util/emailBodyContainmentCss';
-import { fitToWidthZoom } from '../util/fitToWidthZoom';
 import { isPersonalMessage } from '../util/isPersonalMessage';
 import {
   fetchImagesViaPlatform,
@@ -248,67 +247,54 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
     );
   });
 
-  // After containment, shrink leftover wide canvases (newsletter tables)
-  // to the pane. Pathological width is floored so type stays readable.
+  // After containment, leftover wide canvases (newsletter tables) stay at
+  // native type. Scroll sideways when the body is still wider than the pane.
   createEffect(() => {
     const container = host();
     // Re-run when source changes
     source();
 
-    const clearScale = () => {
+    const clearOverflowX = () => {
       const root = container.shadowRoot;
       if (!root) return;
       const messageDiv = root.querySelector('div');
       if (messageDiv instanceof HTMLElement) {
-        messageDiv.style.zoom = '';
         messageDiv.style.overflow = '';
         messageDiv.style.overflowX = '';
       }
     };
 
     if (!props.isBodyExpanded()) {
-      clearScale();
+      clearOverflowX();
       return;
     }
 
-    const applyScale = () => {
+    const applyOverflowX = () => {
       const root = container.shadowRoot;
       if (!root) return;
       const messageDiv = root.querySelector('div');
       if (!messageDiv || !(messageDiv instanceof HTMLElement)) return;
 
-      // Reset any previous scaling before measuring. overflowX is a longhand
-      // and survives clearing the overflow shorthand.
-      messageDiv.style.zoom = '';
+      // Reset before measuring. overflowX is a longhand and survives
+      // clearing the overflow shorthand.
       messageDiv.style.overflow = '';
       messageDiv.style.overflowX = '';
 
-      const fit = fitToWidthZoom({
-        containerWidth: container.clientWidth,
-        contentWidth: messageDiv.scrollWidth,
-      });
-      if (!fit) {
-        // When content fits, leave overflow alone. overflow:auto on a fitting
-        // body turns hidden tracking-pixel divs into a message-height scrollbar.
-        return;
-      }
-      // Use zoom instead of transform: scale() so backgrounds, borders, and
-      // layout shrink together without clipping. The floor keeps leftover
-      // canvas overflow (a 600px newsletter on a skinny pane) readable.
-      messageDiv.style.zoom = `${fit.zoom}`;
-      if (fit.overflowsAfterZoom) {
+      // When content fits, leave overflow alone. overflow:auto on a fitting
+      // body turns hidden tracking-pixel divs into a message-height scrollbar.
+      if (messageDiv.scrollWidth - container.clientWidth > 1) {
         messageDiv.style.overflowX = 'auto';
       }
     };
 
     // Re-run on container resize (e.g. orientation change, split resize)
-    const resizeObserver = new ResizeObserver(() => applyScale());
+    const resizeObserver = new ResizeObserver(() => applyOverflowX());
     resizeObserver.observe(container);
 
     // Re-run when images inside the shadow DOM finish loading
     const root = container.shadowRoot;
     const images = root ? Array.from(root.querySelectorAll('img')) : [];
-    const onImageLoad = () => applyScale();
+    const onImageLoad = () => applyOverflowX();
     for (const img of images) {
       if (!img.complete) {
         img.addEventListener('load', onImageLoad);
@@ -316,7 +302,7 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
     }
 
     // Initial measurement after layout
-    requestAnimationFrame(() => applyScale());
+    requestAnimationFrame(() => applyOverflowX());
 
     onCleanup(() => {
       resizeObserver.disconnect();
