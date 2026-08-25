@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { DEFAULT_THEMES } from '@theme/constants';
-import { getOklch } from '@theme/utils/colorUtil';
-import type { ThemeColorParams } from '../transform-email-colors';
+import { EMAIL_BODY_CONTAINMENT_CSS } from '../../../../features/block-email/util/emailBodyContainmentCss';
+import { fitToWidthZoom } from '../../../../features/block-email/util/fitToWidthZoom';
 
 // =============================================================================
 // Types
@@ -15,7 +15,7 @@ import type { ThemeColorParams } from '../transform-email-colors';
  * ## Adding a new fixture:
  * 1. Create a JSON file in the fixtures/ directory (e.g., `my-email.json`)
  * 2. Copy `body_html_sanitized` from an email API response into the file
- * 3. Run `just test-email-rendering-update` to generate baseline screenshots
+ * 3. From the repo root, run `just test-email-rendering-update`
  * 4. Commit the fixture and snapshots
  *
  * ## Example fixture file:
@@ -47,25 +47,6 @@ const THEMES = ['Macro Dark', 'Macro Light'] as const;
 // Theme Helpers
 // =============================================================================
 
-function getThemeConfig(themeName: string): ThemeColorParams {
-  const theme = DEFAULT_THEMES.find((t) => t.name === themeName);
-  if (!theme) {
-    throw new Error(`Theme "${themeName}" not found in DEFAULT_THEMES`);
-  }
-  const ink = getOklch(theme.colorTokens['content-0']);
-  const panel = getOklch(theme.colorTokens['surface-1']);
-  const accent = getOklch(theme.colorTokens.accent);
-  return {
-    inkL: ink.l,
-    inkC: ink.c,
-    inkH: ink.h,
-    panelL: panel.l,
-    accentL: accent.l,
-    accentC: accent.c,
-    accentH: accent.h,
-  };
-}
-
 function generateThemeCSS(themeName: string): string {
   const theme = DEFAULT_THEMES.find((t) => t.name === themeName);
   if (!theme) return '';
@@ -83,9 +64,6 @@ function generateThemeCSS(themeName: string): string {
 
 function createTestHTML(fixture: EmailFixture, themeName: string): string {
   const themeCSS = generateThemeCSS(themeName);
-  const theme = getThemeConfig(themeName);
-  const bgColor = `oklch(${theme.panelL} 0 0)`;
-  const textColor = `oklch(${theme.inkL} ${theme.inkC} ${theme.inkH})`;
 
   return `<!DOCTYPE html>
 <html>
@@ -101,8 +79,8 @@ function createTestHTML(fixture: EmailFixture, themeName: string): string {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         font-size: 14px;
         line-height: 1.5;
-        background-color: ${bgColor};
-        color: ${textColor};
+        background-color: var(--color-surface-1);
+        color: var(--color-content-0);
         padding: 16px;
       }
 
@@ -110,13 +88,14 @@ function createTestHTML(fixture: EmailFixture, themeName: string): string {
         max-width: 600px;
         width: 100%;
         padding: 16px;
-        background-color: ${bgColor};
+        background-color: var(--color-surface-1);
       }
 
-      /* Default link styling using accent color */
       a {
-        color: oklch(${theme.accentL} ${theme.accentC} ${theme.accentH});
+        color: var(--color-accent);
       }
+
+      ${EMAIL_BODY_CONTAINMENT_CSS}
     </style>
   </head>
   <body>
@@ -155,6 +134,23 @@ function snapshotName(fixtureName: string, themeName: string): string {
   return `${fixtureName}-${themeSuffix}.png`;
 }
 
+async function applyFitToWidth(page: Page): Promise<void> {
+  const box = page.locator('.email-container');
+  const [containerWidth, contentWidth] = await box.evaluate((el) => [
+    el.clientWidth,
+    el.scrollWidth,
+  ]);
+  const fit = fitToWidthZoom({ containerWidth, contentWidth });
+  if (!fit) return;
+  await box.evaluate((el, next) => {
+    const node = el as HTMLElement;
+    node.style.zoom = String(next.zoom);
+    if (next.overflowsAfterZoom) {
+      node.style.overflowX = 'auto';
+    }
+  }, fit);
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -170,6 +166,7 @@ test.describe('Email Rendering', () => {
         const html = createTestHTML(fixture, themeName);
         await page.setContent(html);
         await page.waitForLoadState('networkidle');
+        await applyFitToWidth(page);
 
         // Attach screenshot to report (visible even for passing tests)
         const screenshot = await page.screenshot();

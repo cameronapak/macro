@@ -24,6 +24,7 @@ import {
 } from 'solid-js';
 import { themeReactive } from '../../theme/signals/themeReactive';
 import { themeUpdate } from '../../theme/signals/themeSignals';
+import { EMAIL_BODY_CONTAINMENT_CSS } from '../util/emailBodyContainmentCss';
 import { fitToWidthZoom } from '../util/fitToWidthZoom';
 import { isPersonalMessage } from '../util/isPersonalMessage';
 import {
@@ -145,22 +146,9 @@ export function EmailMessageBody(props: EmailMessageBodyProps) {
       isPersonal() && !isMacroSender()
         ? `*:not(code):not(pre):not(code *):not(pre *):not([data-macro-btn]){font-family: system-ui, sans-serif !important; font-size: inherit !important; line-height: 1.5 !important;}`
         : '';
-    // Let long &nbsp;-joined signature lines wrap (overflow-wrap is inherited)
-    // and fixed-width tables scroll, so a wide signature doesn't trip the
-    // fit-to-width zoom below and shrink the whole message.
-    const signatureContain = `.macro-email-signature{max-width:100%;overflow-x:auto;overflow-wrap:anywhere;}`;
-    // Browser default blockquote margins apply on both sides. In long email
-    // reply chains that compounds into a narrow column, so keep quote nesting
-    // as a left indent only.
-    const quoteContain =
-      'blockquote{margin-block:0.75em!important;margin-inline-start:1.5em!important;margin-inline-end:0!important;max-width:100%!important;box-sizing:border-box;}';
-    // GitHub (and similar) review mail uses one unwrapped <pre> line. Default
-    // `white-space: pre` inflates scrollWidth and used to zoom the whole
-    // letter to dust. Wrap like Gmail. Leave designed tables alone so
-    // newsletters can still use the fit-to-width floor below.
-    const preContain =
-      'pre,code{white-space:pre-wrap!important;overflow-wrap:anywhere;word-break:break-word;max-width:100%!important;box-sizing:border-box;}';
-    styleEl.textContent = `img{display: var(--macro-email-img-display, initial); max-width: 100% !important; height: auto !important;}${signatureContain}${quoteContain}${preContain}${fontOverride}`;
+    // Containment (images, signatures, quotes, pre/code) lives in
+    // EMAIL_BODY_CONTAINMENT_CSS so the snapshot harness stays in lockstep.
+    styleEl.textContent = `${EMAIL_BODY_CONTAINMENT_CSS}${fontOverride}`;
     shadow.appendChild(styleEl);
     const messageDiv = document.createElement('div');
     messageDiv.innerHTML = source()?.mainContent ?? '';
