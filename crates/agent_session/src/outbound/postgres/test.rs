@@ -93,6 +93,8 @@ fn new_session(
         repo_url: Some("https://github.com/example/example".to_string()),
         workspace: "/workspace".to_string(),
         sandbox_size: SandboxSize::Default,
+        instructions: None,
+        egress_token_hash: None,
     }
 }
 
@@ -190,7 +192,56 @@ async fn create_and_get_round_trips(pool: PgPool) {
     );
     assert_eq!(session.thread_id, None);
     assert_eq!(session.sandbox_size, SandboxSize::Default);
+    assert_eq!(session.instructions, None);
     assert!(matches!(session.status, SessionStatus::NoMessages));
+}
+
+/// Instructions survive the round trip, and come back on every read path a
+/// runtime uses to find its session - not just the one `create` returned.
+///
+/// The read paths matter more than the write here: what a session runs under
+/// is resolved at attach, and attach reaches the row through `get`, so a
+/// column the INSERT stores but a SELECT drops would look correct until the
+/// first reconnect.
+#[sqlx::test(migrator = "MACRO_DB_MIGRATIONS")]
+async fn instructions_round_trip_on_every_read_path(pool: PgPool) {
+    const INSTRUCTIONS: &str = "Answer in one sentence.\nNever open a pull request.";
+
+    let repo = PgAgentSessionRepo::new(pool.clone());
+    let bot_id = create_test_bot(&pool).await;
+    let (_channel_id, thread_id, originating_message_id) =
+        insert_originating_thread_fixture(&pool).await;
+    let params = CreateAgentSessionParams {
+        instructions: Some(INSTRUCTIONS.to_owned()),
+        egress_token_hash: Some("token-hash".to_owned()),
+        ..new_session(bot_id, Some(thread_id), Some(originating_message_id))
+    };
+    let id = params.id;
+
+    let created = create_session(&repo, params).await;
+    assert_eq!(created.instructions.as_deref(), Some(INSTRUCTIONS));
+
+    let fetched = AgentSessionRepo::get(&repo, id)
+        .await
+        .expect("get agent session");
+    assert_eq!(fetched.instructions.as_deref(), Some(INSTRUCTIONS));
+
+    let by_token = AgentSessionRepo::find_by_egress_token_hash(&repo, "token-hash")
+        .await
+        .expect("the token lookup should run")
+        .expect("the token should resolve to the session");
+    assert_eq!(by_token.instructions.as_deref(), Some(INSTRUCTIONS));
+
+    let for_thread = AgentSessionRepo::find_all_for_thread(&repo, thread_id)
+        .await
+        .expect("the thread lookup should run");
+    assert_eq!(
+        for_thread
+            .iter()
+            .map(|session| session.instructions.as_deref())
+            .collect::<Vec<_>>(),
+        vec![Some(INSTRUCTIONS)]
+    );
 }
 
 #[sqlx::test(migrator = "MACRO_DB_MIGRATIONS")]
@@ -503,6 +554,60 @@ async fn find_for_channel_matches_the_originating_thread_and_bot(pool: PgPool) {
         .await
         .expect("look up an unrelated thread");
     assert!(matches!(wrong_thread, ChannelSession::None));
+}
+
+#[sqlx::test(migrator = "MACRO_DB_MIGRATIONS")]
+async fn find_all_for_thread_returns_every_session_on_the_thread(pool: PgPool) {
+    let repo = PgAgentSessionRepo::new(pool.clone());
+    let bot_a = create_test_bot(&pool).await;
+    let bot_b = create_test_bot(&pool).await;
+    let (_channel, thread, originating_message) = insert_originating_thread_fixture(&pool).await;
+    let older = create_session(
+        &repo,
+        new_session(bot_a, Some(thread), Some(originating_message)),
+    )
+    .await;
+    let newer = create_session(
+        &repo,
+        new_session(bot_b, Some(thread), Some(originating_message)),
+    )
+    .await;
+    create_session(&repo, new_session(bot_a, None, None)).await;
+    ExternalSessionRepo::upsert(&repo, newer.id, cursor_external("bc-thread"))
+        .await
+        .expect("attach an external identity");
+
+    let found = repo
+        .find_all_for_thread(thread)
+        .await
+        .expect("list sessions on the thread");
+    assert_eq!(found.len(), 2);
+    assert!(found.iter().any(|session| session.id == newer.id));
+    assert!(found.iter().any(|session| session.id == older.id));
+    assert!(
+        found
+            .windows(2)
+            .all(|pair| pair[0].created_at >= pair[1].created_at)
+    );
+    let with_external = found
+        .iter()
+        .find(|session| session.id == newer.id)
+        .expect("the newer session is on the thread");
+    assert_eq!(with_external.external, Some(cursor_external("bc-thread")));
+    assert!(
+        found
+            .iter()
+            .find(|session| session.id == older.id)
+            .expect("the older session is on the thread")
+            .external
+            .is_none()
+    );
+
+    let empty = repo
+        .find_all_for_thread(macro_uuid::generate_uuid_v7())
+        .await
+        .expect("list an unrelated thread");
+    assert!(empty.is_empty());
 }
 
 #[sqlx::test(migrator = "MACRO_DB_MIGRATIONS")]

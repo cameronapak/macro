@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use agent_client_protocol::RawJsonRpcMessage;
-use agent_client_protocol::schema::v1::{RequestId, Response, SessionId};
+use agent_client_protocol::schema::v1::{McpServer, RequestId, Response, SessionId};
 use agent_runtime_protocol::domain::ports::{
     Transport, TransportError, TransportReceiver, TransportSender,
 };
@@ -32,6 +32,7 @@ use agent_runtime_protocol::domain::schema::v0::{
 };
 use dashmap::DashMap;
 use tokio::sync::{Mutex, mpsc, watch};
+use tokio_util::sync::CancellationToken;
 
 use crate::domain::model::AgentSessionId;
 use crate::domain::session::HandshakeStatus;
@@ -135,6 +136,14 @@ fn acp_session_of(frame: &RawJsonRpcMessage) -> Option<SessionId> {
 pub struct RuntimeAttachment<Connector> {
     pub(crate) connector: Connector,
     pub(crate) handshake: watch::Sender<HandshakeStatus>,
+    /// MCP servers the agent is told to connect to when this attachment's
+    /// session is established (`session/new`, `session/load`,
+    /// `session/resume`).
+    ///
+    /// Per attachment rather than per session row because it is computed
+    /// fresh at each attach - the set follows what the owner has connected
+    /// *now*, not what they had connected when the session was created.
+    pub(crate) mcp_servers: Vec<McpServer>,
 }
 
 impl<Connector> RuntimeAttachment<Connector> {
@@ -147,7 +156,16 @@ impl<Connector> RuntimeAttachment<Connector> {
         Self {
             connector,
             handshake,
+            mcp_servers: Vec::new(),
         }
+    }
+
+    /// The MCP servers the agent is handed when this attachment's session is
+    /// established.
+    #[must_use]
+    pub fn mcp_servers(mut self, mcp_servers: Vec<McpServer>) -> Self {
+        self.mcp_servers = mcp_servers;
+        self
     }
 }
 
@@ -171,6 +189,13 @@ pub struct RuntimeConnection<Sender> {
     bound: Bound,
     routes: Mutex<Routes>,
     router: OnceLock<tokio::task::AbortHandle>,
+    /// Cancelled once this connection's transport has ended.
+    ///
+    /// A token rather than a notification because whoever waits on it mostly
+    /// arrives late: a connection can die before anybody asks, and
+    /// [`CancellationToken::cancelled`] on an already-cancelled token returns
+    /// at once, where a missed notification would wait forever.
+    closed: CancellationToken,
 }
 
 impl<Sender> RuntimeConnection<Sender>
@@ -195,6 +220,7 @@ where
             bound: DashMap::new(),
             routes: Mutex::new(Routes::default()),
             router: OnceLock::new(),
+            closed: CancellationToken::new(),
         });
         let router = tokio::spawn(Arc::clone(&connection).route_inbound(inbound));
         let _ = connection.router.set(router.abort_handle());
@@ -207,6 +233,19 @@ where
         if let Some(router) = self.router.get() {
             router.abort();
         }
+        // An aborted router will never reach the end of `route_inbound`, so
+        // the signal is raised here too: whoever is waiting for this
+        // connection to be over is waiting for either way of it ending.
+        self.closed.cancel();
+    }
+
+    /// Resolves once this connection's transport has ended, however it ended.
+    ///
+    /// What a registry holding connections needs in order to stop handing out
+    /// one that is closed: a socket dies with nothing to announce it, so the
+    /// holder has to be told rather than discover it on the next send.
+    pub async fn closed(&self) {
+        self.closed.cancelled().await;
     }
 
     /// The gate every session on this connection shares.
@@ -246,6 +285,9 @@ where
                 frames,
             },
             handshake: self.handshake.clone(),
+            // External runtimes hold no egress environment; the sessions
+            // they serve are not handed proxied MCP servers.
+            mcp_servers: Vec::new(),
         }
     }
 
@@ -311,6 +353,7 @@ where
             }
         }
         self.bound.clear();
+        self.closed.cancel();
     }
 
     async fn deliver(&self, session: AgentSessionId, message: ToServerMessage) {

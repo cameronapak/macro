@@ -7,6 +7,7 @@ import {
   type Query,
 } from '@app/features/next-soup/filters/filter-store';
 import {
+  ENABLE_CALENDAR_SEARCH_UI,
   ENABLE_CALENDAR_UI,
   ENABLE_REMINDERS,
   ENABLE_SNIPPETS,
@@ -284,6 +285,10 @@ export const VIEW_TAB_PRESETS: Record<ListView, ViewTabConfig> = {
   mail: {
     default: 'important',
     tabs: {
+      // No 'no-drafts' on any thread-listing tab: a thread whose latest
+      // message is a saved draft must stay in Signal/Noise/Calendar/Sent (it
+      // also shows under Drafts). The server counts drafts toward is_signal
+      // and inbox visibility for the same reason.
       important: () => ({
         filters: defineQueryFilters({
           include: {
@@ -293,7 +298,7 @@ export const VIEW_TAB_PRESETS: Record<ListView, ViewTabConfig> = {
           },
           emailView: 'inbox',
         }),
-        clientFilters: { and: ['email', 'no-drafts'] },
+        clientFilters: { and: ['email'] },
         groupBy: 'date',
       }),
       noise: () => ({
@@ -305,7 +310,7 @@ export const VIEW_TAB_PRESETS: Record<ListView, ViewTabConfig> = {
           },
           emailView: 'inbox',
         }),
-        clientFilters: { and: ['email', 'no-drafts'] },
+        clientFilters: { and: ['email'] },
         groupBy: 'date',
       }),
       calendar: () => ({
@@ -317,7 +322,7 @@ export const VIEW_TAB_PRESETS: Record<ListView, ViewTabConfig> = {
           emailView: 'all',
         }),
 
-        clientFilters: { and: ['email', 'no-drafts'] },
+        clientFilters: { and: ['email'] },
         groupBy: 'date',
       }),
       drafts: () => ({
@@ -335,7 +340,7 @@ export const VIEW_TAB_PRESETS: Record<ListView, ViewTabConfig> = {
         filters: defineQueryFilters({
           emailView: 'sent',
         }),
-        clientFilters: { and: ['email', 'no-drafts'] },
+        clientFilters: { and: ['email'] },
         groupBy: 'date',
       }),
       shared: () => ({
@@ -604,7 +609,9 @@ export const VIEW_TAB_PRESETS: Record<ListView, ViewTabConfig> = {
             // Events are title-indexed, so search returns them — but opening
             // one needs the calendar block, which the flag gates. Without it
             // a hit would render an inert row, so exclude the type instead.
-            ...(ENABLE_CALENDAR_UI() ? {} : { calendarEventId: [NIL_UUID] }),
+            ...(ENABLE_CALENDAR_SEARCH_UI()
+              ? {}
+              : { calendarEventId: [NIL_UUID] }),
           },
           exclude: getDisabledSnippetSubtypeExclude(),
         },
